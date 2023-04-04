@@ -23,7 +23,7 @@ defmodule Membrane.AAC.FDK.Decoder do
 
   @impl true
   def handle_init(_ctx, _opts) do
-    {[], %{native: Native.create!(), output_format: nil, next_pts: nil}}
+    {[], %{native: Native.create!(), output_format_detected: false}}
   end
 
   @impl true
@@ -31,12 +31,20 @@ defmodule Membrane.AAC.FDK.Decoder do
   Since we only accept buffers that carry one single frame, we're able to
   preserve pts information simply forwarding it.
   """
-  def handle_stream_format(:input, _format, _ctx, state) do
+  def handle_stream_format(:input, %Membrane.RemoteStream{content_format: %AAC{frames_per_buffer: 1}}, _ctx, state) do
     {[], state}
   end
 
+  def handle_stream_format(:input, %AAC{frames_per_buffer: 1}, _ctx, state) do
+    {[], state}
+  end
+
+  def handle_stream_format(:input, format, _ctx, _state) do
+    raise "Unsupported input frame format #{inspect format}"
+  end
+
   @impl true
-  def handle_process(:input, %Buffer{pts: pts} = buffer, _ctx, %{output_format: nil, next_pts: nil} = state) do
+  def handle_process(:input, buffer, _ctx, %{output_format_detected: false} = state) do
     fill_decoder(buffer, state)
     buffer = decode_buffer(buffer, state)
 
@@ -46,27 +54,16 @@ defmodule Membrane.AAC.FDK.Decoder do
     end
 
     format = %RawAudio{sample_format: :s16le, sample_rate: sample_rate, channels: channels}
-    {buffer, next_pts} = update_pts(buffer, format, pts)
-    state = %{state | output_format: format, next_pts: next_pts}
-    {[stream_format: {:output, format}, buffer: {:output, buffer}], state}
+    {[stream_format: {:output, format}, buffer: {:output, buffer}], %{state | output_format_detected: true}}
   end
 
-  def handle_process(:input, buffer, _ctx, %{output_format: format, next_pts: pts} = state) do
+  def handle_process(:input, buffer, _ctx, state) do
     fill_decoder(buffer, state)
     buffer = decode_buffer(buffer, state)
-    {buffer, next_pts} = update_pts(buffer, format, pts)
-    {[buffer: {:output, buffer}], %{state | next_pts: next_pts}}
+    {[buffer: {:output, buffer}], state}
   end
 
-  defp update_pts(buffer, format, nil) do
-    update_pts(buffer, format, 0)
-  end
-
-  defp update_pts(buffer = %Buffer{payload: payload}, format, next_pts) do
-    {%Buffer{buffer | pts: next_pts}, next_pts + RawAudio.bytes_to_time(byte_size(payload), format)}
-  end
-
-  defp fill_decoder(%Buffer{payload: payload, pts: pts, dts: dts}, %{native: native}) do
+  defp fill_decoder(%Buffer{payload: payload}, %{native: native}) do
     :ok = Native.fill!(payload, native)
   end
 
