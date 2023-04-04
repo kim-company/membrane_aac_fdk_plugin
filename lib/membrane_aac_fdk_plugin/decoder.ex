@@ -69,14 +69,14 @@ defmodule Membrane.AAC.FDK.Decoder do
     {%Buffer{buffer | pts: next_pts}, next_pts + RawAudio.bytes_to_time(byte_size(payload), format)}
   end
 
-  defp fill_decoder(%Buffer{payload: payload, pts: pts}, %{native: native}) do
+  defp fill_decoder(%Buffer{payload: payload}, %{native: native}) do
     :ok = Native.fill!(payload, native)
   end
 
-  defp decode_buffer(%Buffer{payload: payload, pts: pts}, %{native: native}) do
+  defp decode_buffer(%Buffer{payload: payload}, %{native: native}) do
     case Native.decode_frame(payload, native) do
       {:ok, decoded_frame} ->
-        %Buffer{payload: decoded_frame, pts: pts}
+        %Buffer{payload: decoded_frame}
 
       {:error, :not_enough_bits} ->
         raise "Not enough data to decode one complete AAC frame"
